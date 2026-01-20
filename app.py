@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import joblib
 import os
-
+import datetime
+from google.cloud import bigquery  # <--- Ini obat buat 'bigquery'
+from google.cloud import storage
+from google.oauth2 import service_account # <--- Ini obat buat kredensial
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
     page_title="CardioCheck",
@@ -38,6 +41,51 @@ st.sidebar.divider()
 
 # Variabel buat nyimpen data inputan manual
 user_input_data = {}
+
+def get_credentials():
+    """Mengambil kredensial aman dari Streamlit Secrets"""
+    # Cek apakah secrets sudah disetting
+    if "gcp_service_account" in st.secrets:
+        creds_dict = st.secrets["gcp_service_account"]
+        # Ubah dict ke object credentials biar dikenali Google
+        creds = service_account.Credentials.from_service_account_info(creds_dict)
+        return creds
+    else:
+        # Fallback error yang sopan biar gak panic
+        st.error("⚠️ Kunci rahasia (Secrets) belum disetting. Cek dashboard Streamlit lu le!")
+        return None
+    
+def save_to_bigquery(df, project_id, dataset_id, table_id):
+    """Menyimpan DataFrame ke Google BigQuery"""
+    try:
+        creds = get_credentials()
+        if not creds: return False, "Gagal Autentikasi"
+
+        client = bigquery.Client(credentials=creds, project=project_id)
+        table_ref = f"{project_id}.{dataset_id}.{table_id}"
+        
+        # --- [FIX PENTING] BERSIHKAN NAMA KOLOM ---
+        # BigQuery gak suka spasi. Kita ganti spasi jadi underscore (_)
+        # Contoh: "Heart rate" jadi "Heart_rate"
+        df_clean = df.copy()
+        df_clean.columns = [c.replace(' ', '_').replace('-', '_').replace('.', '') for c in df_clean.columns]
+
+        # Tambah timestamp
+        df_clean['waktu_prediksi'] = datetime.datetime.now()
+        
+        # Load data
+        job_config = bigquery.LoadJobConfig(
+            # Schema update options biar kalau ada kolom baru gak error
+            schema_update_options=[
+                bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
+            ],
+            write_disposition="WRITE_APPEND", 
+        )
+        job = client.load_table_from_dataframe(df_clean, table_ref, job_config=job_config)
+        job.result() 
+        return True, "Data berhasil direkam ke BigQuery."
+    except Exception as e:
+        return False, f"Gagal menyimpan ke BigQuery: {str(e)}"
 
 # --- MODE 1: INPUT MANUAL (Final Update: Gender Dropdown) ---
 if mode == " Input Manual":
