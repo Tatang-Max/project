@@ -5,7 +5,7 @@ import os
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
-    page_title="CardioCheck ",
+    page_title="CardioCheck",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -113,9 +113,9 @@ if mode == " Input Manual":
                 format=fmt, 
                 help=help_txt
             )
-            
+
 # --- 4. UI UTAMA ---
-st.title(" CardioCheck AI")
+st.title(" CardioCheck")
 st.markdown("### Sistem Deteksi Dini Risiko Penyakit Jantung Akut")
 
 # --- LOGIC MODE 1: TAMPILAN MANUAL ---
