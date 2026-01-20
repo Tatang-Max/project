@@ -1,0 +1,7 @@
+streamlit
+pandas
+scikit-learn
+openpyxl
+google-cloud-storage
+google-cloud-bigquery
+db-dtypes
