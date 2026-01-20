@@ -5,7 +5,7 @@ import os
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
-    page_title="CardioCheck AI",
+    page_title="CardioCheck ",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
