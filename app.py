@@ -39,36 +39,81 @@ st.sidebar.divider()
 # Variabel buat nyimpen data inputan manual
 user_input_data = {}
 
-# --- MODE 1: INPUT MANUAL (Logic Lama) ---
+# --- MODE 1: INPUT MANUAL (Final Update: Gender Dropdown) ---
 if mode == " Input Manual":
     st.sidebar.subheader("Masukkan Data Klinis:")
     
     for feature in saved_features:
         label = feature
         
-        # Logic input khusus Age (Integer)
-        if 'Age' in feature:
-            user_input_data[feature] = st.sidebar.number_input(
-                f"{label}", min_value=0, max_value=120, value=45, step=1,
-                help="Usia pasien (tahun)"
+        # 1. KHUSUS GENDER (Dropdown Menu)
+        if feature == 'Gender':
+            # Tampilan di layar: Teks
+            gender_option = st.sidebar.selectbox(
+                f"{label}", 
+                ["Laki-laki", "Perempuan"],
+                help="Jenis Kelamin Pasien"
             )
-        # Logic input Float
-        else:
-            if 'Troponin' in feature:
-                min_v, max_v, val, step = 0.0, 100.0, 0.01, 0.001
-                help_text = "Kadar Troponin (ng/mL)"
-            elif 'CK-MB' in feature:
-                min_v, max_v, val, step = 0.0, 300.0, 2.0, 0.1
-                help_text = "Kadar CK-MB (unit/L)"
+            
+            # Logic Backend: Ubah jadi Angka (1 = Laki, 0 = Perempuan)
+            # Sesuaikan kalau model lu kebalik (misal 0=Laki), tinggal tuker angkanya
+            user_input_data[feature] = 1 if gender_option == "Laki-laki" else 0
+            
+            continue # Lanjut ke fitur berikutnya, jangan bikin input angka lagi buat gender
+        
+        # 2. INPUT DATA INTEGER (Bilangan Bulat)
+        if feature in ['Age', 'Heart rate', 'Systolic blood pressure', 'Diastolic blood pressure']:
+            
+            if 'Age' in feature:
+                min_v, max_v, val = 20, 110, 55
+                help_txt = "Usia Pasien (Tahun)"
+            elif 'Heart rate' in feature:
+                min_v, max_v, val = 40, 200, 80
+                help_txt = "Detak Jantung (bpm)"
+            elif 'Systolic' in feature:
+                min_v, max_v, val = 50, 250, 120
+                help_txt = "Tekanan Darah Sistolik/Atas (mmHg)"
+            elif 'Diastolic' in feature:
+                min_v, max_v, val = 30, 150, 80
+                help_txt = "Tekanan Darah Diastolik/Bawah (mmHg)"
             else:
-                min_v, max_v, val, step = 0.0, 1000.0, 0.0, 1.0
-                help_text = ""
+                min_v, max_v, val = 0, 300, 0
+                help_txt = ""
 
             user_input_data[feature] = st.sidebar.number_input(
-                f"{label}", min_value=float(min_v), max_value=float(max_v), 
-                value=float(val), step=float(step), format="%.3f", help=help_text
+                f"{label}", 
+                min_value=int(min_v), 
+                max_value=int(max_v), 
+                value=int(val), 
+                step=1, 
+                help=help_txt
             )
-
+            
+        # 3. INPUT DATA FLOAT (Bilangan Koma)
+        else:
+            if 'Blood sugar' in feature:
+                min_v, max_v, val, step, fmt = 30.0, 600.0, 120.0, 1.0, "%.1f"
+                help_txt = "Gula Darah Sewaktu (mg/dL)"
+            elif 'CK-MB' in feature:
+                min_v, max_v, val, step, fmt = 0.0, 400.0, 5.0, 0.1, "%.2f"
+                help_txt = "Kadar Enzim CK-MB (unit/L)"
+            elif 'Troponin' in feature:
+                min_v, max_v, val, step, fmt = 0.0, 20.0, 0.01, 0.001, "%.3f"
+                help_txt = "Kadar Troponin (ng/mL)"
+            else:
+                min_v, max_v, val, step, fmt = 0.0, 1000.0, 0.0, 0.1, "%.2f"
+                help_txt = ""
+                
+            user_input_data[feature] = st.sidebar.number_input(
+                f"{label}", 
+                min_value=float(min_v), 
+                max_value=float(max_v), 
+                value=float(val), 
+                step=float(step), 
+                format=fmt, 
+                help=help_txt
+            )
+            
 # --- 4. UI UTAMA ---
 st.title(" CardioCheck AI")
 st.markdown("### Sistem Deteksi Dini Risiko Penyakit Jantung Akut")
