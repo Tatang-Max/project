@@ -39,7 +39,7 @@ mode = st.sidebar.radio("Pilih Metode Input:", [" Input Manual", "📂 Upload Fi
 
 st.sidebar.divider()
 
-# Variabel buat nyimpen data inputan manual
+# Variabel buat nyimpen data inputan manualupdate
 user_input_data = {}
 
 def get_credentials():
@@ -203,7 +203,7 @@ if mode == " Input Manual":
                     st.error(f"Terjadi kesalahan: {e}")
 
 # --- LOGIC MODE 2: TAMPILAN UPLOAD BATCH ---
-elif mode == " Upload File (Batch)":
+elif mode == "📂 Upload File (Batch)": 
     st.info(" Mode Batch aktif. Upload file Excel/CSV berisi data pasien banyak sekaligus.")
     
     # Widget Upload
