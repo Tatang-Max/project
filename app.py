@@ -166,10 +166,12 @@ if mode == " Input Manual":
                     if prediction == 1:
                         st.error(f"🚨 BERISIKO TINGGI ({risk_score*100:.1f}%)")
                         st.progress(risk_score)
+                        st.warning("⚠️ **Saran:** Segera rujuk spesialis jantung untuk cek up lebih lanjut.")
                     else:
                         st.success(f"✅ AMAN ({risk_score*100:.1f}%)")
                         st.progress(risk_score)
-                    
+                        st.info("👍 **Saran:** Pertahankan hidup sehat.")
+                        
                     if success_bq: st.toast("✅ Data tersimpan ke Cloud", icon="☁️")
                     else: st.toast(f"⚠️ {msg_bq}", icon="❌")
                 except Exception as e: st.error(f"Error: {e}")
