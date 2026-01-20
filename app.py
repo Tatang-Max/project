@@ -2,10 +2,6 @@ import streamlit as st
 import pandas as pd
 import joblib
 import os
-import datetime
-# [BARU] Import Library Google Cloud
-from google.cloud import bigquery
-from google.cloud import storage
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
@@ -15,57 +11,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- [BARU] KONFIGURASI GCP (WAJIB DIISI) ---
-# Ganti dengan ID Project, Nama Dataset, dan Nama Bucket kamu
-PROJECT_ID = "bigdataea-484802" 
-DATASET_ID = "dataset_jantung"    # Pastikan dataset ini udah dibuat di BigQuery
-TABLE_ID = "history_prediksi"     # Nama tabel (akan dibuat otomatis jika belum ada)
-BUCKET_NAME = "bucket-jantung-data" # Pastikan bucket ini udah dibuat di Cloud Storage
-
-# --- [BARU] FUNGSI HELPER KE CLOUD ---
-def save_to_bigquery(df, project_id, dataset_id, table_id):
-    """Menyimpan DataFrame ke Google BigQuery"""
-    try:
-        client = bigquery.Client(project=project_id)
-        table_ref = f"{project_id}.{dataset_id}.{table_id}"
-        
-        # Tambah timestamp agar tau kapan data masuk
-        df['waktu_prediksi'] = datetime.datetime.now()
-        
-        # Load data
-        job_config = bigquery.LoadJobConfig(
-            write_disposition="WRITE_APPEND", # Tambah data baru di bawah (tidak menimpa)
-        )
-        job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
-        job.result() # Tunggu sampai selesai
-        return True, "Data berhasil direkam ke BigQuery."
-    except Exception as e:
-        return False, f"Gagal menyimpan ke BigQuery: {str(e)}"
-
-def upload_to_gcs(file_obj, filename, bucket_name):
-    """Upload file mentah ke Google Cloud Storage"""
-    try:
-        client = storage.Client()
-        bucket = client.bucket(bucket_name)
-        blob = bucket.blob(f"uploads/{filename}") # Masuk ke folder uploads/
-        
-        # Reset pointer file ke awal sebelum upload
-        file_obj.seek(0)
-        blob.upload_from_file(file_obj)
-        # Reset lagi pointer biar bisa dibaca pandas setelah ini
-        file_obj.seek(0)
-        return True
-    except Exception as e:
-        return False
-
 # --- 2. FUNGSI LOAD MODEL ---
 @st.cache_resource
 def load_model():
-    file_path = 'rf.pkl' # Pastikan nama file model sesuai (tadi kamu sebut rf.pkl)
-    # Fallback nama file lama jika rf.pkl tidak ada
-    if not os.path.exists(file_path):
-        file_path = 'random_forest_medical.pkl'
-        
+    file_path = 'random_forest_medical.pkl'
     if not os.path.exists(file_path):
         return None
     return joblib.load(file_path)
@@ -74,19 +23,12 @@ def load_model():
 data = load_model()
 
 if data is None:
-    st.error("⚠️ File Model (.pkl) tidak ditemukan. Pastikan file ada di folder yang sama.")
+    st.error("⚠️ File 'random_forest_medical.pkl' tidak ditemukan. Pastikan file ada di folder yang sama.")
     st.stop()
 
-# Handle jika model disimpan dictionary atau langsung object model
-if isinstance(data, dict):
-    model = data['model']
-    saved_features = data['features']
-else:
-    model = data
-    # [PENTING] Jika features tidak tersimpan di dict, kita harus define manual 
-    # atau ambil dari logic sebelumnya. Asumsi di sini data berupa dict sesuai kodemu.
-    st.error("Format model tidak sesuai struktur dictionary {model, features}.")
-    st.stop()
+model = data['model']
+# Mengambil list fitur yang dipake pas training (biar urutannya bener)
+saved_features = data['features'] 
 
 # --- 3. SIDEBAR: PILIH MODE ---
 st.sidebar.title("🎛️ Panel Kontrol")
@@ -97,7 +39,7 @@ st.sidebar.divider()
 # Variabel buat nyimpen data inputan manual
 user_input_data = {}
 
-# --- MODE 1: INPUT MANUAL ---
+# --- MODE 1: INPUT MANUAL (Logic Lama) ---
 if mode == " Input Manual":
     st.sidebar.subheader("Masukkan Data Klinis:")
     
@@ -153,13 +95,6 @@ if mode == " Input Manual":
                     proba = model.predict_proba(input_df)[0]
                     risk_score = proba[1] # Ambil probabilitas kelas 1 (Sakit)
 
-                    # [BARU] Simpan hasil ke BigQuery
-                    input_df['hasil_prediksi'] = int(prediction)
-                    input_df['probabilitas_risiko'] = float(risk_score)
-                    
-                    # Eksekusi simpan background
-                    success_bq, msg_bq = save_to_bigquery(input_df, PROJECT_ID, DATASET_ID, TABLE_ID)
-
                     if prediction == 1:
                         st.error(f"🚨 **TERINDIKASI BERISIKO TINGGI**")
                         st.metric("Probabilitas Risiko", f"{risk_score*100:.1f}%", delta="Bahaya")
@@ -170,12 +105,6 @@ if mode == " Input Manual":
                         st.metric("Probabilitas Risiko", f"{risk_score*100:.1f}%", delta="-Aman", delta_color="normal")
                         st.progress(risk_score)
                         st.info("👍 **Saran:** Pertahankan gaya hidup sehat.")
-                    
-                    # Feedback Cloud
-                    if success_bq:
-                        st.toast("✅ Data berhasil disimpan ke Database Cloud.", icon="☁️")
-                    else:
-                        st.toast(f"⚠️ {msg_bq}", icon="❌")
                 
                 except Exception as e:
                     st.error(f"Terjadi kesalahan: {e}")
@@ -195,17 +124,12 @@ elif mode == " Upload File (Batch)":
 
     if uploaded_file is not None:
         try:
-            # [BARU] Upload file mentah ke Cloud Storage (GCS)
-            with st.spinner("Mengamankan file ke Cloud Storage..."):
-                upload_to_gcs(uploaded_file, uploaded_file.name, BUCKET_NAME)
-            
-            st.toast("File berhasil di-backup ke Cloud Storage!", icon="📦")
-
             # Baca File
             if uploaded_file.name.endswith('.csv'):
+                # Coba baca pake separator ; dulu, kalau error coba ,
                 try:
                     df_upload = pd.read_csv(uploaded_file, sep=';')
-                    if len(df_upload.columns) < 2: 
+                    if len(df_upload.columns) < 2: # Kalau gagal parsing (kolom jadi 1)
                         uploaded_file.seek(0)
                         df_upload = pd.read_csv(uploaded_file, sep=',')
                 except:
@@ -229,23 +153,16 @@ elif mode == " Upload File (Batch)":
                         
                         # Prediksi Massal
                         predictions = model.predict(X_batch)
-                        probabilities = model.predict_proba(X_batch)[:, 1]
+                        probabilities = model.predict_proba(X_batch)[:, 1] # Ambil probabilitas kelas 1
                         
                         # Bikin DataFrame Hasil
                         result_df = df_upload.copy()
+                        
+                        # Tambah kolom hasil
                         result_df['Risiko (%)'] = probabilities
                         result_df['Status'] = ["🔴 BERISIKO" if p == 1 else "🟢 AMAN" for p in predictions]
-
-                        # [BARU] Simpan hasil analisa massal ke BigQuery
-                        bq_df = df_upload.copy()
-                        bq_df['hasil_prediksi'] = predictions
-                        bq_df['probabilitas_risiko'] = probabilities
                         
-                        success_bq, msg_bq = save_to_bigquery(bq_df, PROJECT_ID, DATASET_ID, TABLE_ID)
-                        if success_bq:
-                            st.caption("✅ Hasil analisis telah disinkronisasi ke BigQuery.")
-                        
-                        # Pindahkan kolom hasil ke depan
+                        # Pindahkan kolom hasil ke depan biar gampang dilihat
                         cols = ['Status', 'Risiko (%)'] + [c for c in result_df.columns if c not in ['Status', 'Risiko (%)']]
                         result_df = result_df[cols]
 
