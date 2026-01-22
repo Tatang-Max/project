@@ -4,9 +4,9 @@ import joblib
 import os
 import datetime
 import gspread 
-import uuid # Nambah ini buat generate nama file unik
+import uuid 
 from oauth2client.service_account import ServiceAccountCredentials
-from supabase import create_client, Client # Nambah ini buat Supabase
+from supabase import create_client, Client 
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
@@ -18,7 +18,7 @@ st.set_page_config(
 
 # --- KONFIGURASI DATABASE & STORAGE ---
 SHEET_NAME = "Database_Jantung" 
-BUCKET_NAME = "Cloud-Computing"
+BUCKET_NAME = "Cloud-Computing" # Sesuai bucket lu yang bener
 
 # Fungsi Inisialisasi Supabase
 @st.cache_resource
@@ -35,12 +35,9 @@ supabase = init_supabase()
 # --- 2. FUNGSI LOAD MODEL ---
 @st.cache_resource
 def load_model():
-    # Sesuai file pkl lu le
     file_path = 'random_forest_medical.pkl' 
-    
     if not os.path.exists(file_path):
         return None
-        
     return joblib.load(file_path)
 
 data = load_model()
@@ -55,7 +52,6 @@ saved_features = data['features']
 def get_sheet_connection():
     if "gcp_service_account" not in st.secrets:
         return None
-    
     creds_dict = st.secrets["gcp_service_account"]
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -138,7 +134,7 @@ if mode == " Input Manual":
 
     st.info(" Mode Input Manual aktif.")
     
-    # --- TAMBAHAN: Upload Bukti Pendukung ---
+    # Upload Bukti Manual
     st.markdown("#### 📁 Dokumen Pendukung (Opsional)")
     evidence_file = st.file_uploader("Upload hasil lab/rontgen (JPG/PNG/PDF)", type=['jpg', 'jpeg', 'png', 'pdf'])
     
@@ -172,6 +168,7 @@ if mode == " Input Manual":
                     
                     # Masukkan link ke dataframe
                     bq_df['link_bukti'] = file_url
+                    bq_df['link_file_asli'] = "-" # Manual gak ada file asli batch
 
                     # 3. Simpan ke Google Sheets
                     success_bq, msg_bq = save_to_database_awan(bq_df)
@@ -186,7 +183,6 @@ if mode == " Input Manual":
                     if success_bq: st.toast("✅ Data & Dokumen tersimpan", icon="☁️")
                     else: st.toast(f"⚠️ {msg_bq}", icon="❌")
                     
-                    # Tampilkan link jika berhasil upload
                     if file_url != "-":
                         st.caption(f"🔗 Dokumen tersimpan: {file_url}")
 
@@ -222,48 +218,51 @@ elif mode == "📂 Upload File (Batch)":
                 st.error(f"❌ Kolom tidak lengkap! Hilang: {missing_cols}")
             else:
                 st.success(f"✅ Data Valid: {len(df_upload)} Baris Pasien terdeteksi.")
-                
-                # Preview sekilas
                 st.dataframe(df_upload.head(3), use_container_width=True)
 
-                if st.button("🚀 PROSES BATCH & UPLOAD CLOUD", type="primary"):
-                    with st.spinner('Sedang meracik data & upload file...'):
+            # Tombol Proses Batch
+            if st.button("🚀 PROSES BATCH & UPLOAD CLOUD", type="primary"):
+                with st.spinner('Sedang meracik data & upload file...'):
+                    
+                    # --- STEP 1: Upload File Mentah (CSV/Excel) ---
+                    uploaded_file.seek(0) 
+                    raw_file_url = upload_evidence(uploaded_file)
+                    
+                    # --- STEP 2: Upload Bukti Tambahan ---
+                    evidence_url = "-"
+                    if batch_evidence is not None:
+                        evidence_url = upload_evidence(batch_evidence)
+                    
+                    # --- STEP 3: Processing ---
+                    X_batch = df_upload[saved_features]
+                    predictions = model.predict(X_batch)
+                    probabilities = model.predict_proba(X_batch)[:, 1]
+                    
+                    bq_df = df_upload.copy()
+                    bq_df['hasil_prediksi'] = predictions
+                    bq_df['probabilitas_risiko'] = probabilities
+                    
+                    # Tempel Link
+                    bq_df['link_bukti_tambahan'] = evidence_url
+                    bq_df['link_file_asli'] = raw_file_url 
+                    
+                    # --- STEP 4: Simpan ke Google Sheets ---
+                    success_bq, msg_bq = save_to_database_awan(bq_df)
+                    
+                    st.write("### 📝 Hasil Analisis Batch")
+                    st.dataframe(bq_df, use_container_width=True)
                         
-                        # 1. Prediksi Masal (Machine Learning)
-                        X_batch = df_upload[saved_features]
-                        predictions = model.predict(X_batch)
-                        probabilities = model.predict_proba(X_batch)[:, 1]
+                    if success_bq: 
+                        st.toast("✅ Semua data & file sukses tersimpan!", icon="☁️")
+                        st.success("Operasi Batch Selesai! Data masuk Google Sheets & File masuk Supabase.")
                         
-                        # 2. Siapkan DataFrame Hasil
-                        bq_df = df_upload.copy()
-                        bq_df['hasil_prediksi'] = predictions
-                        bq_df['probabilitas_risiko'] = probabilities
-                        
-                        # 3. Handle Upload File Batch ke Supabase
-                        file_url = "-" # Default kalau gak upload
-                        if batch_evidence is not None:
-                            # Reuse fungsi upload yang udah kita buat
-                            url_result = upload_evidence(batch_evidence)
-                            if url_result:
-                                file_url = url_result
-                        
-                        # Tempel Link ke SEMUA baris (Broadcast)
-                        bq_df['link_bukti'] = file_url
-                        
-                        # 4. Simpan ke Google Sheets
-                        success_bq, msg_bq = save_to_database_awan(bq_df)
-                        
-                        # Tampilkan Hasil Akhir
-                        st.write("### 📝 Hasil Analisis Batch")
-                        st.dataframe(bq_df, use_container_width=True)
-                        
-                        if success_bq: 
-                            st.toast("✅ Semua data & file sukses tersimpan!", icon="☁️")
-                            st.success("Operasi Batch Selesai! Data masuk Google Sheets & File masuk Supabase.")
-                            if file_url != "-":
-                                st.caption(f"🔗 Link Dokumen Batch: {file_url}")
-                        else: 
-                            st.error(f"Gagal simpan database: {msg_bq}")
+                        # Tampilkan Link (Perbaikan Variabel di sini)
+                        if raw_file_url:
+                            st.caption(f"🔗 Link File Data Asli: {raw_file_url}")
+                        if evidence_url != "-":
+                            st.caption(f"🔗 Link Bukti Tambahan: {evidence_url}")
+                    else: 
+                        st.error(f"Gagal simpan database: {msg_bq}")
                             
         except Exception as e:
             st.error(f"Error proses file: {e}")
