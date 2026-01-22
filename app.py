@@ -4,7 +4,9 @@ import joblib
 import os
 import datetime
 import gspread 
+import uuid # Nambah ini buat generate nama file unik
 from oauth2client.service_account import ServiceAccountCredentials
+from supabase import create_client, Client # Nambah ini buat Supabase
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
@@ -14,8 +16,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- KONFIGURASI DATABASE ---
+# --- KONFIGURASI DATABASE & STORAGE ---
 SHEET_NAME = "Database_Jantung" 
+BUCKET_NAME = "dokumen-pasien" # Pastikan bucket ini udah dibuat di Supabase & set Public
+
+# Fungsi Inisialisasi Supabase
+@st.cache_resource
+def init_supabase():
+    try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception:
+        return None
+
+supabase = init_supabase()
 
 # --- 2. FUNGSI LOAD MODEL ---
 @st.cache_resource
@@ -36,7 +51,7 @@ if data is None:
 model = data['model']
 saved_features = data['features'] 
 
-# --- 3. FUNGSI KONEKSI KE SHEETS ---
+# --- 3. FUNGSI KONEKSI KE SHEETS & STORAGE ---
 def get_sheet_connection():
     if "gcp_service_account" not in st.secrets:
         return None
@@ -46,6 +61,27 @@ def get_sheet_connection():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
     return client
+
+# Fungsi Upload ke Supabase
+def upload_evidence(file_obj):
+    if not supabase: return None
+    try:
+        file_bytes = file_obj.getvalue()
+        file_ext = file_obj.name.split('.')[-1]
+        file_name = f"evidence_{uuid.uuid4()}.{file_ext}"
+        
+        # Upload ke Supabase
+        supabase.storage.from_(BUCKET_NAME).upload(
+            path=file_name,
+            file=file_bytes,
+            file_options={"content-type": file_obj.type}
+        )
+        
+        # Ambil Public URL
+        return supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
+    except Exception as e:
+        st.error(f"Gagal upload storage: {e}")
+        return None
 
 def save_to_database_awan(df):
     try:
@@ -101,6 +137,11 @@ if mode == " Input Manual":
             user_input_data[feature] = st.sidebar.number_input(f"{label}", min_value=float(min_v), max_value=float(max_v), value=float(val), step=float(step), format=fmt)
 
     st.info(" Mode Input Manual aktif.")
+    
+    # --- TAMBAHAN: Upload Bukti Pendukung ---
+    st.markdown("#### 📁 Dokumen Pendukung (Opsional)")
+    evidence_file = st.file_uploader("Upload hasil lab/rontgen (JPG/PNG/PDF)", type=['jpg', 'jpeg', 'png', 'pdf'])
+    
     st.divider()
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -112,6 +153,7 @@ if mode == " Input Manual":
         if st.button("🔍 ANALISIS SEKARANG", type="primary"):
             with st.spinner('Memproses...'):
                 try:
+                    # 1. Prediksi
                     prediction = model.predict(input_df)[0]
                     proba = model.predict_proba(input_df)[0]
                     risk_score = proba[1]
@@ -120,6 +162,18 @@ if mode == " Input Manual":
                     bq_df['hasil_prediksi'] = int(prediction)
                     bq_df['probabilitas_risiko'] = float(risk_score)
                     
+                    # 2. Upload ke Supabase (Jika ada file)
+                    file_url = "-"
+                    if evidence_file is not None:
+                         with st.spinner('Mengupload dokumen ke Cloud Storage...'):
+                            url_result = upload_evidence(evidence_file)
+                            if url_result:
+                                file_url = url_result
+                    
+                    # Masukkan link ke dataframe
+                    bq_df['link_bukti'] = file_url
+
+                    # 3. Simpan ke Google Sheets
                     success_bq, msg_bq = save_to_database_awan(bq_df)
 
                     if prediction == 1:
@@ -129,8 +183,13 @@ if mode == " Input Manual":
                         st.success(f"✅ AMAN ({risk_score*100:.1f}%)")
                         st.progress(risk_score)
                         
-                    if success_bq: st.toast("✅ Data tersimpan", icon="☁️")
+                    if success_bq: st.toast("✅ Data & Dokumen tersimpan", icon="☁️")
                     else: st.toast(f"⚠️ {msg_bq}", icon="❌")
+                    
+                    # Tampilkan link jika berhasil upload
+                    if file_url != "-":
+                        st.caption(f"🔗 Dokumen tersimpan: {file_url}")
+
                 except Exception as e: st.error(f"Error: {e}")
 
 # --- MODE 2: UPLOAD BATCH ---
@@ -160,6 +219,7 @@ elif mode == "📂 Upload File (Batch)":
                         bq_df = df_upload.copy()
                         bq_df['hasil_prediksi'] = predictions
                         bq_df['probabilitas_risiko'] = probabilities
+                        bq_df['link_bukti'] = "-" # Batch default strip dulu biar kolom konsisten
                         
                         success_bq, msg_bq = save_to_database_awan(bq_df)
                         
@@ -170,4 +230,4 @@ elif mode == "📂 Upload File (Batch)":
             st.error(f"Error: {e}")
 
 st.divider()
-st.caption("Powered by Streamlit & Cloud Database")
+st.caption("Powered by Streamlit, Supabase Storage & Google Sheets")
