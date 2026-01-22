@@ -18,7 +18,7 @@ st.set_page_config(
 
 # --- KONFIGURASI DATABASE & STORAGE ---
 SHEET_NAME = "Database_Jantung" 
-BUCKET_NAME = "dokumen-pasien" # Pastikan bucket ini udah dibuat di Supabase & set Public
+BUCKET_NAME = "Cloud-Computing"
 
 # Fungsi Inisialisasi Supabase
 @st.cache_resource
