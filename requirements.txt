@@ -5,3 +5,8 @@ openpyxl
 google-cloud-storage
 google-cloud-bigquery
 db-dtypes
+joblib
+gspread
+oauth2client
+supabase
+scikit-learn
