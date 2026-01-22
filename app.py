@@ -194,40 +194,79 @@ if mode == " Input Manual":
 
 # --- MODE 2: UPLOAD BATCH ---
 elif mode == "📂 Upload File (Batch)": 
-    st.info(" Mode Batch aktif.")
-    uploaded_file = st.file_uploader("Upload file data pasien", type=["xlsx", "csv"])
+    st.info("📂 Mode Batch aktif: Upload CSV & Dokumen Pendukung sekaligus.")
+    
+    col_batch_1, col_batch_2 = st.columns(2)
+    
+    with col_batch_1:
+        st.markdown("#### 1. File Data Pasien (Wajib)")
+        uploaded_file = st.file_uploader("Format .xlsx atau .csv", type=["xlsx", "csv"])
+        
+    with col_batch_2:
+        st.markdown("#### 2. Dokumen Pendukung Batch (Opsional)")
+        st.caption("File ini akan terlampir untuk SEMUA data di CSV tersebut.")
+        batch_evidence = st.file_uploader("Upload Surat/Rekap (JPG/PDF)", type=['jpg', 'jpeg', 'png', 'pdf'])
 
     if uploaded_file is not None:
         try:
+            # Baca File Data
             if uploaded_file.name.endswith('.csv'):
                 try: df_upload = pd.read_csv(uploaded_file, sep=';')
                 except: df_upload = pd.read_csv(uploaded_file, sep=',')
             else:
                 df_upload = pd.read_excel(uploaded_file)
             
+            # Cek Kolom
             missing_cols = [col for col in saved_features if col not in df_upload.columns]
             if missing_cols:
-                st.error(f"Kolom hilang: {missing_cols}")
+                st.error(f"❌ Kolom tidak lengkap! Hilang: {missing_cols}")
             else:
-                st.success(f"File dimuat: {len(df_upload)} Baris.")
-                if st.button(" JALANKAN ANALISIS BATCH", type="primary"):
-                    with st.spinner('Menganalisis & Menyimpan...'):
+                st.success(f"✅ Data Valid: {len(df_upload)} Baris Pasien terdeteksi.")
+                
+                # Preview sekilas
+                st.dataframe(df_upload.head(3), use_container_width=True)
+
+                if st.button("🚀 PROSES BATCH & UPLOAD CLOUD", type="primary"):
+                    with st.spinner('Sedang meracik data & upload file...'):
+                        
+                        # 1. Prediksi Masal (Machine Learning)
                         X_batch = df_upload[saved_features]
                         predictions = model.predict(X_batch)
                         probabilities = model.predict_proba(X_batch)[:, 1]
                         
+                        # 2. Siapkan DataFrame Hasil
                         bq_df = df_upload.copy()
                         bq_df['hasil_prediksi'] = predictions
                         bq_df['probabilitas_risiko'] = probabilities
-                        bq_df['link_bukti'] = "-" # Batch default strip dulu biar kolom konsisten
                         
+                        # 3. Handle Upload File Batch ke Supabase
+                        file_url = "-" # Default kalau gak upload
+                        if batch_evidence is not None:
+                            # Reuse fungsi upload yang udah kita buat
+                            url_result = upload_evidence(batch_evidence)
+                            if url_result:
+                                file_url = url_result
+                        
+                        # Tempel Link ke SEMUA baris (Broadcast)
+                        bq_df['link_bukti'] = file_url
+                        
+                        # 4. Simpan ke Google Sheets
                         success_bq, msg_bq = save_to_database_awan(bq_df)
                         
+                        # Tampilkan Hasil Akhir
+                        st.write("### 📝 Hasil Analisis Batch")
                         st.dataframe(bq_df, use_container_width=True)
-                        if success_bq: st.success("✅ Data Batch disimpan ke Cloud Database!")
-                        else: st.error(f"Gagal simpan: {msg_bq}")
+                        
+                        if success_bq: 
+                            st.toast("✅ Semua data & file sukses tersimpan!", icon="☁️")
+                            st.success("Operasi Batch Selesai! Data masuk Google Sheets & File masuk Supabase.")
+                            if file_url != "-":
+                                st.caption(f"🔗 Link Dokumen Batch: {file_url}")
+                        else: 
+                            st.error(f"Gagal simpan database: {msg_bq}")
+                            
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error proses file: {e}")
 
 st.divider()
 st.caption("Powered by Streamlit, Supabase Storage & Google Sheets")
