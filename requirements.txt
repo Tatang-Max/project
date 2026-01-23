@@ -1,6 +1,5 @@
 streamlit
 pandas
-scikit-learn
 openpyxl
 google-cloud-storage
 google-cloud-bigquery
@@ -10,3 +9,4 @@ gspread
 oauth2client
 supabase
 scikit-learn
+streamlit-analytics
